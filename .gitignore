@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Backend runtime
+backend/*.db
+backend/test_*.db
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# MLflow
+ml/mlruns/
+mlflow.db
+
+# OS
+.DS_Store
