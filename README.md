@@ -84,3 +84,19 @@ pytest
   data is small, narrow in population, and not clinically validated.
 - Local dev uses SQLite by default; set `DATABASE_URL` to point at Postgres
   (Docker Compose does this automatically).
+
+# Run code in terminal 1 
+
+cd "C:\Users\Subrata Paul\Desktop\health-risk-platform"
+.\venv\Scripts\Activate.ps1
+cd ml
+python train.py
+cd ..\backend
+uvicorn app.main:app --reload
+
+# Run code in terminal 2 
+
+cd "C:\Users\Subrata Paul\Desktop\health-risk-platform"
+.\venv\Scripts\Activate.ps1
+cd frontend
+npm run dev
