@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class BatchRowResult(BaseModel):
@@ -14,6 +14,8 @@ class BatchRowResult(BaseModel):
 
 
 class BatchPredictionResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     filename: str
     total_rows: int
     successful: int

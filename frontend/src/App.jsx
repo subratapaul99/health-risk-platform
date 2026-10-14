@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Menu } from "lucide-react";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
@@ -6,27 +6,58 @@ import DashboardView from "./components/DashboardView.jsx";
 import HistoryView from "./components/HistoryView.jsx";
 import AboutView from "./components/AboutView.jsx";
 import BatchView from "./components/BatchView.jsx";
+import SimulationView from "./components/SimulationView.jsx";
+import AdminView from "./components/AdminView.jsx";
+import DocumentaryView from "./components/DocumentaryView.jsx";
+import AuthModal from "./components/AuthModal.jsx";
 import { ToastStack, useToasts } from "./components/Toast.jsx";
-import { fetchHistory, submitAssessment } from "./api.js";
+import { fetchHistory, submitAssessment, logoutUser } from "./api.js";
 
-const USER_ID = "demo_user";
+const DEFAULT_USER_ID = "demo_user";
 
 function AppShell() {
   const [view, setView] = useState("dashboard");
   const [result, setResult] = useState(null);
+  const [latestAssessment, setLatestAssessment] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
   const { toasts, pushToast, dismissToast } = useToasts();
+
+  // Load existing session info on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem("health_user_info");
+    if (savedUser) {
+      try {
+        setCurrentUser(JSON.parse(savedUser));
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+    // Load initial history
+    fetchHistory(DEFAULT_USER_ID)
+      .then((h) => setHistory(h.history || []))
+      .catch(() => {});
+  }, []);
+
+  const activeUserId = currentUser?.username || DEFAULT_USER_ID;
 
   async function handleSubmit(payload) {
     setLoading(true);
     try {
-      const response = await submitAssessment(payload);
+      const formattedPayload = { ...payload, user_id: activeUserId };
+      const response = await submitAssessment(formattedPayload);
       setResult(response);
-      const h = await fetchHistory(USER_ID);
-      setHistory(h.history);
-      pushToast("Assessment complete.", "success");
+      setLatestAssessment(payload);
+
+      const h = await fetchHistory(activeUserId);
+      setHistory(h.history || []);
+      pushToast("Clinical assessment and SHAP attribution completed.", "success");
+    } catch (err) {
+      pushToast(err.response?.data?.detail || "Assessment submission failed.", "error");
     } finally {
       setLoading(false);
     }
@@ -37,9 +68,32 @@ function AppShell() {
     setMobileNavOpen(false);
   }
 
+  function handleAuthSuccess(user) {
+    setCurrentUser(user);
+    pushToast(`Welcome, ${user.full_name || user.username}!`, "success");
+    // Reload user history
+    fetchHistory(user.username)
+      .then((h) => setHistory(h.history || []))
+      .catch(() => {});
+  }
+
+  function handleLogout() {
+    logoutUser();
+    setCurrentUser(null);
+    pushToast("Signed out successfully.", "success");
+  }
+
   return (
     <div className="layout">
-      <Sidebar view={view} onNavigate={handleNavigate} mobileOpen={mobileNavOpen} />
+      <Sidebar
+        view={view}
+        onNavigate={handleNavigate}
+        mobileOpen={mobileNavOpen}
+        currentUser={currentUser}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onLogout={handleLogout}
+      />
+
       {mobileNavOpen && (
         <div className="sidebar-scrim no-print" onClick={() => setMobileNavOpen(false)} />
       )}
@@ -59,13 +113,36 @@ function AppShell() {
             loading={loading}
             onSubmit={handleSubmit}
             onError={(msg) => pushToast(msg, "error")}
-            userId={USER_ID}
+            userId={activeUserId}
+            latestPayload={latestAssessment}
+            onNavigateToSim={() => handleNavigate("simulate")}
           />
         )}
-        {view === "history" && <HistoryView history={history} />}
-        {view === "batch" && <BatchView onError={(msg) => pushToast(msg, "error")} />}
+        {view === "simulate" && (
+          <SimulationView
+            latestAssessment={latestAssessment}
+            onApplyToForm={(vals) => {
+              setLatestAssessment(vals);
+              setView("dashboard");
+            }}
+          />
+        )}
+        {view === "history" && (
+          <HistoryView history={history} userId={activeUserId} />
+        )}
+        {view === "batch" && (
+          <BatchView onError={(msg) => pushToast(msg, "error")} />
+        )}
+        {view === "admin" && <AdminView />}
+        {view === "documentary" && <DocumentaryView />}
         {view === "about" && <AboutView />}
       </main>
+
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>

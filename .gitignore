@@ -16,5 +16,6 @@ frontend/dist/
 ml/mlruns/
 mlflow.db
 
-# OS
+# OS & IDE
 .DS_Store
+.vscode/

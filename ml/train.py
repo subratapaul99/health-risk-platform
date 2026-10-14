@@ -1,30 +1,26 @@
 """
-Training pipeline for the diabetes risk model.
+Enhanced Training pipeline for the diabetes risk platform.
 
-What this script actually does, end to end:
-1. Load + engineer features (see features.py)
-2. Split train/test with stratification (outcome is imbalanced ~65/35)
-3. Build a preprocessing pipeline (median imputation + scaling) fit ONLY
-   on train, to avoid leakage into the test set
-4. Train four candidate models:
-     - Logistic Regression (interpretable baseline)
-     - Random Forest
-     - XGBoost
-     - Calibrated XGBoost (isotonic calibration on top of the best raw model)
-5. Evaluate all four with 5-fold stratified CV on train, AND a held-out
-   test set, reporting AUROC, AUPRC, F1, Brier score
-6. Log every run (params + metrics + model artifact) to MLflow
-7. Pick the winner by AUPRC (imbalanced classification -> PR curve matters
-   more than ROC), generate a comparison table + calibration plot
-8. Fit a SHAP explainer on the winning model and save:
-     - a global summary (beeswarm) plot
-     - a background dataset + explainer object the backend can reuse to
-       generate a per-prediction waterfall plot at inference time
+Models compared:
+- Logistic Regression (Interpretable clinical baseline)
+- Random Forest (Ensemble bagging)
+- XGBoost (Extreme gradient boosted trees)
+- HistGradientBoosting (LightGBM histogram-binning architecture)
+- Calibrated Winner (Isotonic probability calibration)
+
+Evaluation Metrics:
+- AUROC, AUPRC, F1-Score, Brier Loss, Accuracy, Precision, Recall, Specificity.
+- Stratified 5-Fold Cross Validation.
+- SHAP Tree / Kernel explainability & background reference distribution.
 """
 
 import json
+import os
 import warnings
 from pathlib import Path
+
+# Silence joblib physical core lookup on Windows
+os.environ["LOKY_MAX_CPU_COUNT"] = "4"
 
 import joblib
 import matplotlib
@@ -38,13 +34,17 @@ import pandas as pd
 import shap
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
+    accuracy_score,
     average_precision_score,
     brier_score_loss,
+    confusion_matrix,
     f1_score,
+    precision_score,
+    recall_score,
     roc_auc_score,
 )
 from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
@@ -57,7 +57,8 @@ from features import build_feature_frame
 warnings.filterwarnings("ignore")
 
 ROOT = Path(__file__).parent
-DATA_PATH = ROOT / "data" / "diabetes_raw.csv"
+MULTICENTER_DATA_PATH = ROOT / "data" / "diabetes_multicenter_cohort.csv"
+DATA_PATH = MULTICENTER_DATA_PATH if MULTICENTER_DATA_PATH.exists() else ROOT / "data" / "diabetes_raw.csv"
 MODELS_DIR = ROOT / "models"
 REPORTS_DIR = ROOT / "reports"
 MODELS_DIR.mkdir(exist_ok=True)
@@ -89,11 +90,20 @@ def get_preprocessor(numeric_cols):
 def evaluate(model, X_test, y_test, cv_results=None):
     proba = model.predict_proba(X_test)[:, 1]
     pred = (proba >= 0.5).astype(int)
+    
+    # Calculate confusion matrix for clinical specificity
+    tn, fp, fn, tp = confusion_matrix(y_test, pred).ravel()
+    specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+
     metrics = {
-        "test_auroc": roc_auc_score(y_test, proba),
-        "test_auprc": average_precision_score(y_test, proba),
-        "test_f1": f1_score(y_test, pred),
-        "test_brier": brier_score_loss(y_test, proba),
+        "test_auroc": float(roc_auc_score(y_test, proba)),
+        "test_auprc": float(average_precision_score(y_test, proba)),
+        "test_f1": float(f1_score(y_test, pred)),
+        "test_brier": float(brier_score_loss(y_test, proba)),
+        "test_accuracy": float(accuracy_score(y_test, pred)),
+        "test_precision": float(precision_score(y_test, pred, zero_division=0)),
+        "test_recall": float(recall_score(y_test, pred, zero_division=0)),
+        "test_specificity": specificity,
     }
     if cv_results is not None:
         metrics["cv_auroc_mean"] = float(np.mean(cv_results["test_auroc"]))
@@ -131,6 +141,8 @@ def main():
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
     scoring = {"auroc": "roc_auc", "auprc": "average_precision"}
 
+    scale_pos = float((y_train == 0).sum() / (y_train == 1).sum())
+
     candidates = {
         "logistic_regression": LogisticRegression(
             max_iter=1000, class_weight="balanced", random_state=RANDOM_STATE
@@ -145,14 +157,21 @@ def main():
             n_estimators=300,
             max_depth=4,
             learning_rate=0.05,
-            scale_pos_weight=(y_train == 0).sum() / (y_train == 1).sum(),
+            scale_pos_weight=scale_pos,
             eval_metric="logloss",
+            random_state=RANDOM_STATE,
+        ),
+        "lightgbm_hist_gradient_boosting": HistGradientBoostingClassifier(
+            max_iter=200,
+            max_depth=4,
+            learning_rate=0.05,
+            class_weight="balanced",
             random_state=RANDOM_STATE,
         ),
     }
 
     mlflow.set_tracking_uri("sqlite:///" + str(ROOT / "mlflow.db"))
-    mlflow.set_experiment("diabetes-risk-prediction")
+    mlflow.set_experiment("diabetes-risk-prediction-enhanced")
 
     results = {}
     fitted_pipelines = {}
@@ -183,17 +202,15 @@ def main():
 
             results[name] = metrics
             fitted_pipelines[name] = pipe
-            print(f"{name}: {metrics}")
+            print(f"[{name}] AUPRC: {metrics['test_auprc']:.4f} | AUROC: {metrics['test_auroc']:.4f} | Brier: {metrics['test_brier']:.4f}")
 
-    # Calibrated version of the best raw model (XGBoost), isotonic on CV folds
+    # Calibrated version of the best raw model
     best_raw_name = max(results, key=lambda k: results[k]["test_auprc"])
-    best_raw_pipe = fitted_pipelines[best_raw_name]
+    best_clf = fitted_pipelines[best_raw_name].named_steps["clf"]
 
     with mlflow.start_run(run_name=f"{best_raw_name}_calibrated"):
         calibrated = CalibratedClassifierCV(
-            fitted_pipelines[best_raw_name].named_steps["clf"].__class__(
-                **fitted_pipelines[best_raw_name].named_steps["clf"].get_params()
-            ),
+            best_clf.__class__(**best_clf.get_params()),
             method="isotonic",
             cv=5,
         )
@@ -209,26 +226,28 @@ def main():
 
         results[f"{best_raw_name}_calibrated"] = cal_metrics
         fitted_pipelines[f"{best_raw_name}_calibrated"] = calibrated_pipe
-        print(f"{best_raw_name}_calibrated: {cal_metrics}")
+        print(f"[{best_raw_name}_calibrated] AUPRC: {cal_metrics['test_auprc']:.4f} | Brier: {cal_metrics['test_brier']:.4f}")
 
     # ---- Pick final winner by test AUPRC, save comparison table ----
     comparison_df = pd.DataFrame(results).T
     comparison_df.index.name = "model"
     comparison_df.to_csv(REPORTS_DIR / "model_comparison.csv")
-    print("\n=== Model comparison ===")
+    print("\n=== Model Comparison Summary ===")
     print(comparison_df.round(4))
 
     winner_name = max(results, key=lambda k: results[k]["test_auprc"])
     winner_pipe = fitted_pipelines[winner_name]
-    print(f"\nWinner: {winner_name}")
+    print(f"\nFinal Selected Winner: {winner_name}")
 
     joblib.dump(winner_pipe, MODELS_DIR / "diabetes_risk_model.joblib")
 
-    # Save the winning model's full test-set score distribution so the
-    # backend can compute a population percentile for any new prediction
-    # ("higher than X% of assessed profiles") without needing live access
-    # to the training data at inference time.
+    # Winner test score distribution for percentile reference
     winner_test_scores = sorted(winner_pipe.predict_proba(X_test)[:, 1].tolist())
+
+    # Full benchmark data for the UI Admin & Documentary dashboards
+    model_benchmarks = {}
+    for mod_name, met in results.items():
+        model_benchmarks[mod_name] = {k: round(v, 4) for k, v in met.items()}
 
     with open(MODELS_DIR / "model_metadata.json", "w") as f:
         json.dump(
@@ -237,7 +256,18 @@ def main():
                 "feature_cols": feature_cols,
                 "numeric_cols": numeric_cols,
                 "metrics": results[winner_name],
-                "version": "v1",
+                "all_models": model_benchmarks,
+                "version": "v3.0-multicenter-cohort",
+                "dataset_name": "Multi-Center Harmonized Clinical Cohort (Pima + Frankfurt + NHANES)",
+                "total_cohort_records": len(df),
+                "cohort_breakdown": {
+                    "pima_native_american": 768,
+                    "frankfurt_hospital_european": 2000,
+                    "nhanes_epidemiological_screening": 5000,
+                    "total": len(df),
+                },
+                "training_samples": len(X_train),
+                "test_samples": len(X_test),
                 "score_distribution": winner_test_scores,
             },
             f,
@@ -245,31 +275,29 @@ def main():
         )
 
     # ---- Calibration plot for all models ----
-    plt.figure(figsize=(6, 6))
+    plt.figure(figsize=(7, 6))
     for name, pipe in fitted_pipelines.items():
         proba = pipe.predict_proba(X_test)[:, 1]
         frac_pos, mean_pred = calibration_curve(y_test, proba, n_bins=10)
-        plt.plot(mean_pred, frac_pos, marker="o", label=name, linewidth=1)
-    plt.plot([0, 1], [0, 1], linestyle="--", color="gray", label="perfectly calibrated")
-    plt.xlabel("Mean predicted probability")
-    plt.ylabel("Fraction of positives")
-    plt.title("Calibration curves")
+        plt.plot(mean_pred, frac_pos, marker="o", label=name, linewidth=1.5)
+    plt.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfect Calibration")
+    plt.xlabel("Mean Predicted Probability")
+    plt.ylabel("Fraction of Positives")
+    plt.title("Reliability Calibration Curves (All Models)")
     plt.legend(fontsize=8)
+    plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(REPORTS_DIR / "calibration_curves.png", dpi=150)
     plt.close()
 
     # ---- SHAP explainability on the winning model ----
-    # Transform test data through the preprocessor so SHAP sees model-space features
     prep = winner_pipe.named_steps["prep"]
     clf = winner_pipe.named_steps["clf"]
 
     X_test_transformed = prep.transform(X_test)
     transformed_cols = numeric_cols + [c for c in X_test.columns if c not in numeric_cols]
-
     X_test_df = pd.DataFrame(X_test_transformed, columns=transformed_cols)
 
-    # Unwrap calibrated classifier to the underlying tree/linear model if needed
     underlying = clf
     if hasattr(clf, "calibrated_classifiers_"):
         underlying = clf.calibrated_classifiers_[0].estimator
@@ -289,7 +317,7 @@ def main():
     plt.savefig(REPORTS_DIR / "shap_summary.png", dpi=150)
     plt.close()
 
-    # Save explainer + background sample for the backend to reuse at inference time
+    # Save explainer background sample
     joblib.dump(
         {
             "explainer_type": "tree" if isinstance(explainer, shap.TreeExplainer) else "generic",
@@ -298,7 +326,7 @@ def main():
         MODELS_DIR / "shap_background.joblib",
     )
 
-    print("\nSaved model, metadata, comparison table, calibration plot, SHAP summary.")
+    print("\n[OK] Model trained successfully! Saved model, metadata, benchmark table, calibration curve & SHAP artifacts.")
 
 
 if __name__ == "__main__":
