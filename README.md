@@ -1,4 +1,4 @@
-# 🏥 Health Risk Intelligence Platform (v2.0 Enhanced)
+# 🏥 Health Risk Intelligence Platform 
 
 An end-to-end, clinical-grade diabetes risk intelligence system demonstrating the complete machine learning product stack:
 * **Multi-Algorithm Tournament:** Benchmarking Logistic Regression, Random Forest, XGBoost, and LightGBM / HistGradientBoosting with stratified cross-validation and probability calibration.
@@ -10,7 +10,7 @@ An end-to-end, clinical-grade diabetes risk intelligence system demonstrating th
 
 ---
 
-## 🚀 Key Feature Showcase
+##  Key Feature Showcase
 
 | Feature | Description | Primary Endpoints |
 |---|---|---|
