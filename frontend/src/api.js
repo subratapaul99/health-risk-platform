@@ -86,3 +86,26 @@ export function getHistoryExportCsvUrl(userId) {
 export function getReportPdfUrl() {
   return `${API_BASE}/admin/download-report-pdf`;
 }
+
+export async function sendChatMessage(message, patientContext = null, conversationHistory = []) {
+  try {
+    const { data } = await client.post("/chat/message", {
+      message,
+      patient_context: patientContext,
+      conversation_history: conversationHistory,
+    });
+    return data;
+  } catch (err) {
+    // Graceful offline clinical fallback if network issue occurs
+    return {
+      reply: `### 🩺 Clinical AI Health Assistant (Offline Mode)\n\nI received your question: *"${message}"*.\n\nWhile reconnecting to the backend clinical server, here is baseline guidance:\n• **Glycemic Target:** Maintain fasting blood glucose strictly between 70–99 mg/dL.\n• **Dietary Focus:** Adopt a Mediterranean-style plate (50% non-starchy leafy vegetables, 25% lean protein, 25% complex whole grains).\n• **Physical Activity:** Complete at least 150 minutes of moderate aerobic exercise weekly (Diabetes Prevention Program).\n\nPlease verify backend connectivity or consult your licensed physician for acute medical concerns.`,
+      suggested_prompts: [
+        "What foods lower blood sugar?",
+        "What exercise routine is best?",
+        "What is HOMA-IR?"
+      ],
+      clinical_alert: null,
+      relevant_biomarkers: ["glucose"],
+    };
+  }
+}

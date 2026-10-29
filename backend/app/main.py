@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.database import Base, SessionLocal, engine
-from app.routers import admin, auth, batch, history, predict
+from app.db import models  # Ensures all ORM models are registered before create_all
+from app.routers import admin, auth, batch, chat, history, predict
 from app.services.auth_service import init_default_users
 from app.services.ml_service import load_model
 
@@ -64,6 +65,7 @@ app.include_router(history.router)
 app.include_router(batch.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(chat.router)
 
 # Mount versioned API prefix (/api/v1) for modern production API design
 app.include_router(predict.router, prefix="/api/v1")
@@ -71,6 +73,7 @@ app.include_router(history.router, prefix="/api/v1")
 app.include_router(batch.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(chat.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["System Health"])

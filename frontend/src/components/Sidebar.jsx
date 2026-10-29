@@ -11,11 +11,13 @@ import {
   Sun,
   User,
   LogOut,
+  MessageSquareHeart,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext.jsx";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "assistant", label: "AI Health Assistant", icon: MessageSquareHeart },
   { id: "simulate", label: "What-If Simulator", icon: Sliders },
   { id: "history", label: "Risk Trajectory", icon: History },
   { id: "batch", label: "Batch Screening", icon: FileSpreadsheet },

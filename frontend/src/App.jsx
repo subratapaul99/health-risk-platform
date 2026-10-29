@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Menu } from "lucide-react";
+import { Menu, MessageSquareHeart } from "lucide-react";
+import ChatAssistant from "./components/ChatAssistant.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import DashboardView from "./components/DashboardView.jsx";
@@ -118,6 +119,28 @@ function AppShell() {
             onNavigateToSim={() => handleNavigate("simulate")}
           />
         )}
+        {view === "assistant" && (
+          <div className="view-page">
+            <div className="view-header">
+              <h1>
+                <MessageSquareHeart size={24} />
+                Clinical AI Health Assistant
+              </h1>
+              <p>
+                Interactive evidence-based clinical guidance aligned with the American Diabetes Association (ADA)
+                Standards of Care. Ask about nutrition, exercise, insulin resistance, or lab tests.
+              </p>
+            </div>
+            <ChatAssistant
+              patientVitals={latestAssessment}
+              result={result}
+              userId={activeUserId}
+              onNavigateToSim={() => handleNavigate("simulate")}
+              isStandaloneView={true}
+            />
+          </div>
+        )}
+
         {view === "simulate" && (
           <SimulationView
             latestAssessment={latestAssessment}
@@ -137,6 +160,17 @@ function AppShell() {
         {view === "documentary" && <DocumentaryView />}
         {view === "about" && <AboutView />}
       </main>
+
+      {/* Global Floating AI Health Assistant */}
+      {view !== "assistant" && (
+        <ChatAssistant
+          patientVitals={latestAssessment}
+          result={result}
+          userId={activeUserId}
+          onNavigateToSim={() => handleNavigate("simulate")}
+          isStandaloneView={false}
+        />
+      )}
 
       <AuthModal
         isOpen={isAuthOpen}
