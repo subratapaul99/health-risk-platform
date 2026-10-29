@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Wand2, Calculator, UserCheck, AlertCircle } from "lucide-react";
+import { Loader2, Wand2, Calculator, UserCheck, AlertCircle, Mic, MicOff } from "lucide-react";
 import BmiCalculatorModal from "./BmiCalculatorModal.jsx";
 
 const CLINICAL_PERSONAS = [
@@ -76,6 +76,88 @@ export default function RiskForm({ userId, onResult, onError, initialValues }) {
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState(false);
   const [isBmiModalOpen, setIsBmiModalOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceFeedback, setVoiceFeedback] = useState("");
+
+  function parseSpokenText(text) {
+    const lower = text.toLowerCase();
+    const updates = {};
+
+    const glucoseMatch = lower.match(/(?:glucose|sugar)\s*(?:is|=|:)?\s*(\d{2,3})/);
+    if (glucoseMatch) updates.glucose = glucoseMatch[1];
+
+    const bpMatch = lower.match(/(?:blood pressure|bp|pressure)\s*(?:is|=|:)?\s*(\d{2,3})/);
+    if (bpMatch) updates.blood_pressure = bpMatch[1];
+
+    const bmiMatch = lower.match(/(?:bmi|body mass index)\s*(?:is|=|:)?\s*(\d{1,2}(?:\.\d+)?)/);
+    if (bmiMatch) updates.bmi = bmiMatch[1];
+
+    const insulinMatch = lower.match(/(?:insulin)\s*(?:is|=|:)?\s*(\d{1,3})/);
+    if (insulinMatch) updates.insulin = insulinMatch[1];
+
+    const ageMatch = lower.match(/(?:age|years old)\s*(?:is|=|:)?\s*(\d{1,3})/);
+    if (ageMatch) updates.age = ageMatch[1];
+
+    const pregMatch = lower.match(/(?:pregnancies|parity)\s*(?:is|=|:)?\s*(\d{1,2})/);
+    if (pregMatch) updates.pregnancies = pregMatch[1];
+
+    const skinMatch = lower.match(/(?:skin|skin fold|triceps)\s*(?:is|=|:)?\s*(\d{1,2})/);
+    if (skinMatch) updates.skin_thickness = skinMatch[1];
+
+    const pedMatch = lower.match(/(?:pedigree|family)\s*(?:is|=|:)?\s*(\d+(?:\.\d+)?)/);
+    if (pedMatch) updates.diabetes_pedigree = pedMatch[1];
+
+    if (Object.keys(updates).length > 0) {
+      setValues((prev) => ({ ...prev, ...updates }));
+      const summary = Object.entries(updates).map(([k, v]) => `${k}=${v}`).join(", ");
+      setVoiceFeedback(`Captured: ${summary}`);
+    } else {
+      setVoiceFeedback(`Heard: "${text}" (Try: "glucose 135, bp 80, bmi 28, age 45")`);
+    }
+  }
+
+  function toggleSpeech() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceFeedback("Listening... Dictate vitals (e.g. 'glucose 140, bp 82, bmi 31, age 45')");
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        parseSpokenText(transcript);
+      };
+
+      recognition.onerror = (e) => {
+        setIsListening(false);
+        setVoiceFeedback(`Speech recognition error: ${e.error}`);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      setIsListening(false);
+      setVoiceFeedback("Could not start speech recognition.");
+    }
+  }
+
 
   function update(key, val) {
     setValues((v) => ({ ...v, [key]: val }));
@@ -156,6 +238,24 @@ export default function RiskForm({ userId, onResult, onError, initialValues }) {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Voice Dictation Bar */}
+        <div className="voice-intake-bar">
+          <button
+            type="button"
+            className={`voice-btn ${isListening ? "active" : ""}`}
+            onClick={toggleSpeech}
+            title="Click to dictate patient vitals using your microphone"
+          >
+            {isListening ? <MicOff size={15} /> : <Mic size={15} />}
+            {isListening ? "Listening... (Click to Stop)" : "Voice Dictation Intake"}
+          </button>
+          {voiceFeedback && (
+            <span className="voice-feedback-pill">
+              {voiceFeedback}
+            </span>
+          )}
         </div>
 
         <div className="field-row">

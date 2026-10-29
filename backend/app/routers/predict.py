@@ -14,6 +14,7 @@ from app.models.schemas import (
     SimulationResponse,
 )
 from app.services.ml_service import get_model
+from app.services.biomarkers import calculate_clinical_biomarkers
 
 router = APIRouter(prefix="", tags=["Prediction & Clinical Intelligence"])
 
@@ -66,6 +67,8 @@ def predict(payload: HealthInput, db: Session = Depends(get_db)):
     raw_recs = model.generate_recommendations(payload.model_dump(), band, contributions)
     recs = [ClinicalRecommendation(**r) for r in raw_recs]
 
+    biomarkers = calculate_clinical_biomarkers(payload.model_dump())
+
     return PredictionResponse(
         submission_id=submission.id,
         risk_score=proba,
@@ -77,6 +80,11 @@ def predict(payload: HealthInput, db: Session = Depends(get_db)):
             ShapContribution(feature=f, value=v) for f, v in sorted_contribs
         ],
         recommendations=recs,
+        homa_ir=biomarkers['homa_ir'],
+        homa_ir_status=biomarkers['homa_ir_status'],
+        map_pressure=biomarkers['map_pressure'],
+        ascvd_10yr_risk=biomarkers['ascvd_10yr_risk'],
+        ascvd_band=biomarkers['ascvd_band'],
         created_at=prediction.created_at,
     )
 

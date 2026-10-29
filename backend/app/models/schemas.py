@@ -71,6 +71,11 @@ class PredictionResponse(BaseModel):
     percentile: float
     shap_contributions: List[ShapContribution]
     recommendations: List[ClinicalRecommendation] = []
+    homa_ir: Optional[float] = None
+    homa_ir_status: Optional[str] = None
+    map_pressure: Optional[float] = None
+    ascvd_10yr_risk: Optional[float] = None
+    ascvd_band: Optional[str] = None
     created_at: datetime.datetime
 
 

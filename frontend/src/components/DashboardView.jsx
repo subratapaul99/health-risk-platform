@@ -19,6 +19,9 @@ import RecommendationCard from "./RecommendationCard.jsx";
 import MetabolicSyndromeCard from "./MetabolicSyndromeCard.jsx";
 import LifestyleGoalPlanner from "./LifestyleGoalPlanner.jsx";
 import ClinicalSoapNoteModal from "./ClinicalSoapNoteModal.jsx";
+import BiomarkerRadarChart from "./BiomarkerRadarChart.jsx";
+import ClinicalLabRequisitionModal from "./ClinicalLabRequisitionModal.jsx";
+import { FileCheck2 } from "lucide-react";
 
 export default function DashboardView({
   result,
@@ -31,6 +34,7 @@ export default function DashboardView({
   latestPayload,
 }) {
   const [isSoapModalOpen, setIsSoapModalOpen] = useState(false);
+  const [isLabModalOpen, setIsLabModalOpen] = useState(false);
 
   return (
     <div className="view-page">
@@ -65,6 +69,16 @@ export default function DashboardView({
             >
               <FileText size={15} />
               Generate EHR SOAP Note
+            </button>
+          )}
+          {result && (
+            <button
+              className="ghost-btn"
+              onClick={() => setIsLabModalOpen(true)}
+              style={{ fontWeight: 600 }}
+            >
+              <FileCheck2 size={15} />
+              Order Diagnostic Labs
             </button>
           )}
 
@@ -178,6 +192,81 @@ export default function DashboardView({
         <MetabolicSyndromeCard payload={latestPayload} />
       )}
 
+      {/* Biomarker Radar Footprint & Endocrine/Cardiovascular Telemetry */}
+      {latestPayload && (
+        <div className="grid two-col" style={{ marginTop: 28 }}>
+          <BiomarkerRadarChart payload={latestPayload} riskBand={result?.risk_band} />
+
+          <div className="panel">
+            <h2>
+              <HeartPulse size={17} />
+              Endocrine & Cardiovascular Telemetry
+            </h2>
+            <p style={{ margin: "4px 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
+              Estimated co-occurring metabolic indices derived from physiological vitals.
+            </p>
+
+            <div className="cardio-metabolic-tiles">
+              {/* HOMA-IR */}
+              <div className="bio-metric-tile">
+                <span className="bio-metric-label">HOMA-IR (Insulin Resistance)</span>
+                <span className="bio-metric-val">
+                  {result?.homa_ir !== null && result?.homa_ir !== undefined
+                    ? result.homa_ir
+                    : "—"}
+                </span>
+                <span
+                  className={`bio-metric-badge ${
+                    !result?.homa_ir
+                      ? "badge-optimal"
+                      : result.homa_ir < 1.9
+                      ? "badge-optimal"
+                      : result.homa_ir <= 2.9
+                      ? "badge-warning"
+                      : "badge-danger"
+                  }`}
+                >
+                  {result?.homa_ir_status || "Optimal (< 1.9)"}
+                </span>
+              </div>
+
+              {/* 10-Yr ASCVD Risk */}
+              <div className="bio-metric-tile">
+                <span className="bio-metric-label">10-Yr ASCVD Cardiovascular</span>
+                <span className="bio-metric-val">
+                  {result?.ascvd_10yr_risk !== null && result?.ascvd_10yr_risk !== undefined
+                    ? `${(result.ascvd_10yr_risk * 100).toFixed(1)}%`
+                    : "—"}
+                </span>
+                <span
+                  className={`bio-metric-badge ${
+                    !result?.ascvd_10yr_risk || result.ascvd_10yr_risk < 0.05
+                      ? "badge-optimal"
+                      : result.ascvd_10yr_risk < 0.20
+                      ? "badge-warning"
+                      : "badge-danger"
+                  }`}
+                >
+                  {result?.ascvd_band || "Low Risk (<5%)"}
+                </span>
+              </div>
+
+              {/* Mean Arterial Pressure (MAP) */}
+              <div className="bio-metric-tile">
+                <span className="bio-metric-label">Mean Arterial Pressure (MAP)</span>
+                <span className="bio-metric-val">
+                  {result?.map_pressure ? `${result.map_pressure} mmHg` : "—"}
+                </span>
+                <span className="bio-metric-badge badge-optimal">
+                  Norm: 70 - 100 mmHg
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {/* 90-Day Lifestyle Goal Planner */}
       {result && (
         <LifestyleGoalPlanner
@@ -199,6 +288,15 @@ export default function DashboardView({
       <ClinicalSoapNoteModal
         isOpen={isSoapModalOpen}
         onClose={() => setIsSoapModalOpen(false)}
+        result={result}
+        payload={latestPayload}
+        userId={userId}
+      />
+
+      {/* Clinical Lab Requisition Modal */}
+      <ClinicalLabRequisitionModal
+        isOpen={isLabModalOpen}
+        onClose={() => setIsLabModalOpen(false)}
         result={result}
         payload={latestPayload}
         userId={userId}
